@@ -1,0 +1,51 @@
+name: Build & Push ndc-cassandra
+on: workflow_dispatch
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout upstream source
+        uses: actions/checkout@v4
+        with:
+          repository: hasura/ndc-cassandra
+          ref: main
+          fetch-depth: 0
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Locate Dockerfile
+        id: df
+        run: |
+          set -e
+          for f in Dockerfile dev.dockerfile docker/Dockerfile docker/dev.dockerfile; do
+            if [ -f "$f" ]; then echo "file=$f" >> "$GITHUB_OUTPUT"; exit 0; fi
+          done
+          echo "No Dockerfile found (tried: Dockerfile, dev.dockerfile, docker/*)." >&2
+          exit 1
+
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ${{ steps.df.outputs.file }}
+          platforms: linux/amd64
+          push: true
+          tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
+          cache-from: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache
+          cache-to: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
