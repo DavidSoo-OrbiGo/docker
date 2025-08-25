@@ -21,11 +21,8 @@ COPY --from=jni /upstream/calcite-rs-jni /upstream/calcite-rs-jni
 # Adjust the binary name if upstream uses a different one
 RUN cargo build --release --bin ndc-calcite
 
-# ---- Runtime image ----
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates openjdk-21-jre && \
-    rm -rf /var/lib/apt/lists/*
+# ---- Runtime image (Java 21 preinstalled) ----
+FROM eclipse-temurin:21-jre-jammy
 WORKDIR /app
 COPY --from=builder /upstream/target/release/ndc-calcite /app/ndc-calcite
 # Copy JNI artifacts if they exist; ignore errors if missing
