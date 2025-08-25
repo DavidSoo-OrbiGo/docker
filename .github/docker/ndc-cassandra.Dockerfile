@@ -1,51 +1,41 @@
 # syntax=docker/dockerfile:1.7
 
-# ---- Build (Rust) ----
-FROM rust:1.78-bullseye AS builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates pkg-config libssl-dev clang llvm make protobuf-compiler findutils tree \
- && rm -rf /var/lib/apt/lists/*
-WORKDIR /upstream
+# Build args you can override from the workflow
+ARG RUST_IMAGE=rust:1.78-bullseye
+ARG RUNTIME_IMAGE=eclipse-temurin:21-jre-jammy
+ARG CARGO_SUBDIR=.
+ARG BINARY_NAME=ndc-calcite
 
-# Your workflow checks out the upstream repo into ./upstream in your repo.
+# ---- Build stage ----
+FROM ${RUST_IMAGE} AS builder
+ARG CARGO_SUBDIR
+ARG BINARY_NAME
+
+WORKDIR /upstream
+# The workflow checks out the upstream source into ./upstream at build context root
 COPY upstream/ ./
 
-# Show what actually exists (helps debug wrong repo/branch)
-RUN echo "== /upstream tree (depth 2) ==" && tree -L 2 -a
+# Build the Rust binary in the specified subdir (default ".")
+WORKDIR /upstream/${CARGO_SUBDIR}
 
-# Find a Cargo.toml (root or a subdir) and build it
-RUN set -eux; \
-    if [ -f /upstream/Cargo.toml ]; then \
-      CARGO_DIR="/upstream"; \
-    else \
-      CARGO_DIR="$(find /upstream -maxdepth 3 -type f -name Cargo.toml -exec dirname {} \; | head -n1)"; \
-    fi; \
-    if [ -z "${CARGO_DIR}" ]; then \
-      echo "FATAL: No Cargo.toml found in /upstream (is this the correct source repo/branch?)" >&2; \
-      exit 66; \
-    fi; \
-    echo "Building cargo project in: ${CARGO_DIR}"; \
-    cd "${CARGO_DIR}"; \
-    cargo build --release; \
-    mkdir -p /out/bin; \
-    # copy all executable files from target/release
-    find target/release -maxdepth 1 -type f -perm -111 -exec cp {} /out/bin/ \; ; \
-    ls -l /out/bin
+# Caches for cargo speeds up repeated builds
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/upstream/target \
+    cargo build --release --bin ${BINARY_NAME}
 
-# ---- Runtime ----
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates openssl \
- && rm -rf /var/lib/apt/lists/*
+# ---- Runtime stage ----
+FROM ${RUNTIME_IMAGE}
 WORKDIR /app
-COPY --from=builder /out/bin/ /app/
 
-# Pick the first binary by default (override CMD if needed)
-RUN set -eu; BIN="$(ls -1 /app | head -n1)"; \
-    printf '#!/bin/sh\nexec "/app/%s" "$@"\n' "$BIN" > /app/entrypoint.sh; \
-    chmod +x /app/entrypoint.sh; \
-    echo "Default runtime binary: $BIN"
+# These ARGs must be re-declared in the final stage if referenced
+ARG CARGO_SUBDIR
+ARG BINARY_NAME
+
+# Copy the compiled binary from the builder
+COPY --from=builder /upstream/${CARGO_SUBDIR}/target/release/${BINARY_NAME} /app/${BINARY_NAME}
 
 ENV RUST_LOG=info
 EXPOSE 8080
-ENTRYPOINT ["/app/entrypoint.sh"]
+
+# If your binary name is different, pass BINARY_NAME via build-args in the workflow
+CMD ["/app/ndc-calcite"]
