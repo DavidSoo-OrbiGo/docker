@@ -1,4 +1,4 @@
-name: Build & Push ndc-cassandra
+name: "Build & Push ndc-cassandra"
 on: workflow_dispatch
 
 permissions:
@@ -44,4 +44,4 @@ jobs:
           push: true
           tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
           cache-from: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache
-          cache-to: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
+          cache-to:   type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
