@@ -1,3 +1,44 @@
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      # 1) Check out YOUR repo (this is where the Dockerfile lives)
+      - name: Checkout YOUR repo
+        uses: actions/checkout@v4
+
+      # 2) Check out the upstream source into ./upstream (build context)
+      - name: Checkout upstream source into ./upstream
+        uses: actions/checkout@v4
+        with:
+          repository: hasura/ndc-cassandra
+          ref: main
+          path: upstream
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # 3) Login to Docker Hub (uses your repo secrets)
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}   # e.g., orbgio
+          password: ${{ secrets.DOCKERHUB_TOKEN }}      # Docker Hub Access Token with write
+
+      # 4) Build & push using YOUR Dockerfile; context is the upstream code
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./upstream
+          file: .github/docker/ndc-cassandra.Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
+          cache-from: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache
+          cache-to: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
+
+
+
+
 name: Build & Push ndc-cassandra
 on: workflow_dispatch
 
@@ -13,37 +54,34 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout upstream source
+      # 1) Check out YOUR repo (this is where the Dockerfile lives)
+      - name: Checkout YOUR repo
+        uses: actions/checkout@v4
+
+      # 2) Check out the upstream source into ./upstream (build context)
+      - name: Checkout upstream source into ./upstream
         uses: actions/checkout@v4
         with:
           repository: hasura/ndc-cassandra
           ref: main
-          fetch-depth: 0
+          path: upstream
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
+      # 3) Login to Docker Hub (uses your repo secrets)
+      - name: Docker login
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}   # e.g., orbgio
+          password: ${{ secrets.DOCKERHUB_TOKEN }}      # Docker Hub Access Token with write
 
-      - name: Locate Dockerfile
-        id: df
-        run: |
-          set -e
-          for f in Dockerfile dev.dockerfile docker/Dockerfile docker/dev.dockerfile; do
-            if [ -f "$f" ]; then echo "file=$f" >> "$GITHUB_OUTPUT"; exit 0; fi
-          done
-          echo "No Dockerfile found (tried: Dockerfile, dev.dockerfile, docker/*)." >&2
-          exit 1
-
+      # 4) Build & push using YOUR Dockerfile; context is the upstream code
       - name: Build & push image
         uses: docker/build-push-action@v6
         with:
-          context: .
-          file: ${{ steps.df.outputs.file }}
+          context: ./upstream
+          file: .github/docker/ndc-cassandra.Dockerfile
           platforms: linux/amd64
           push: true
           tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
