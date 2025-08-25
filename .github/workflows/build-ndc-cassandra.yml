@@ -1,5 +1,23 @@
-name: "Build & Push ndc-cassandra"
-on: workflow_dispatch
+name: Build & Push ndc-cassandra
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_repo:
+        description: "Upstream owner/repo that actually contains the code (e.g. hasura/XYZ)"
+        required: true
+        default: hasura/ndc-cassandra   # change at run time if needed
+      upstream_ref:
+        description: "Branch or tag of the upstream repo"
+        required: true
+        default: main
+      cargo_subdir:
+        description: "Path (relative to repo root) where Cargo.toml lives (leave blank to auto-detect)"
+        required: false
+        default: ""
+      binary_name:
+        description: "Cargo binary name to build (default: ndc-calcite)"
+        required: false
+        default: ndc-calcite
 
 permissions:
   contents: read
@@ -13,18 +31,40 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      # 1) This repo (so we can read the Dockerfile you added)
+      # 1) This repo (contains the Dockerfile)
       - name: Checkout this repo
         uses: actions/checkout@v4
 
-      # 2) Upstream source goes into ./upstream
+      # 2) Upstream code into ./upstream
       - name: Checkout upstream source
         uses: actions/checkout@v4
         with:
-          repository: hasura/ndc-cassandra
-          ref: main
+          repository: ${{ inputs.upstream_repo }}
+          ref: ${{ inputs.upstream_ref }}
           path: upstream
           fetch-depth: 0
+
+      # 3) If cargo_subdir not provided, try to find a Cargo.toml
+      - name: Detect Cargo project (if not provided)
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.cargo_subdir }}" ]; then
+            echo "cargo_subdir=${{ inputs.cargo_subdir }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "== searching for Cargo.toml under ./upstream (depth 6) =="
+          FOUND="$(find upstream -maxdepth 6 -type f -name Cargo.toml | head -n1 || true)"
+          if [ -z "$FOUND" ]; then
+            echo "::error::No Cargo.toml found under ./upstream. You are likely pointing to the wrong upstream repo/branch."
+            exit 66
+          fi
+          DIR="$(dirname "$FOUND")"
+          # emit relative path (strip leading 'upstream/')
+          REL="${DIR#upstream/}"
+          echo "Found Cargo.toml at: $FOUND (relative: $REL)"
+          echo "cargo_subdir=$REL" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -32,16 +72,19 @@ jobs:
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}   # e.g. orbgio
-          password: ${{ secrets.DOCKERHUB_TOKEN }}      # Docker Hub PAT (Write)
+          username: ${{ secrets.DOCKERHUB_USERNAME }}   # e.g., orbgio
+          password: ${{ secrets.DOCKERHUB_TOKEN }}      # Docker Hub PAT with write
 
       - name: Build & push image
         uses: docker/build-push-action@v6
         with:
-          context: .                                  # repo root containing ./upstream
+          context: .
           file: .github/docker/ndc-cassandra.Dockerfile
+          build-args: |
+            CARGO_SUBDIR=${{ steps.detect.outputs.cargo_subdir }}
+            BINARY_NAME=${{ inputs.binary_name }}
           platforms: linux/amd64
           push: true
           tags: docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
           cache-from: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache
-          cache-to:   type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
+          cache-to: type=registry,ref=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:buildcache,mode=max
