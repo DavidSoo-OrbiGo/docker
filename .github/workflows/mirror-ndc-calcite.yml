@@ -1,0 +1,34 @@
+name: Mirror ndc-calcite to Docker Hub
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "ndc-calcite tag to mirror (e.g. v1.0.16)"
+        required: true
+        default: v1.0.16
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}   # e.g. orbgio
+          password: ${{ secrets.DOCKERHUB_TOKEN }}      # Docker Hub PAT (write)
+
+      - name: Pull from GHCR, retag, push to Docker Hub
+        run: |
+          set -eux
+          SRC=ghcr.io/hasura/ndc-calcite:${{ inputs.tag }}
+          DST=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:${{ inputs.tag }}
+          LATEST=docker.io/${{ secrets.DOCKERHUB_USERNAME }}/ndc-cassandra:dev-latest
+          docker pull "$SRC"
+          docker tag "$SRC" "$DST"
+          docker tag "$SRC" "$LATEST"
+          docker push "$DST"
+          docker push "$LATEST"
